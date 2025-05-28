@@ -1,11 +1,15 @@
 import torchvision.models as models
-from torch import nn
+from torchvision.models import ResNet18_Weights
+import torch.nn as nn
 
-def get_model(num_classes=101, pretrained=True):
-    model = models.resnet18(pretrained=pretrained)
-    model.fc = nn.Linear(model.fc.in_features, num_classes)
+def get_model(pretrained=True):
+    """获取模型，使用新版weights参数替代pretrained"""
+    weights = ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
+    model = models.resnet18(weights=weights)
     
-    for param in model.fc.parameters():
-        param.requires_grad = True
-        
+    # 修改最后一层全连接层（适配Caltech101的101个类别）
+    num_ftrs = model.fc.in_features
+    model.fc = nn.Linear(num_ftrs, 101)
+    
     return model
+

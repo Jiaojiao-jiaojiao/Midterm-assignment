@@ -1,79 +1,76 @@
 import torch
-from torch import nn, optim
+import torch.nn as nn
+import torch.optim as optim
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
-import os  
+import os
 
-def train_model(model, train_loader, val_loader, num_epochs=10, lr=1e-3, save_path="results/saved_model.pt"):
-    # 确保输出目录存在
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)  # 自动创建results目录
-    
+def train_model(model, train_loader, val_loader, num_epochs=10, lr=0.001, pretrained=False, save_dir=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
     
-    # 确保所有参数可训练
-    for param in model.parameters():
-        param.requires_grad = True
-    
+    # 损失函数和优化器
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
-
-    # 创建TensorBoard日志目录
-    log_dir = os.path.join(os.path.dirname(save_path), "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    writer = SummaryWriter(log_dir)
-
-    train_accs, val_accs, train_losses, val_losses = [], [], [], []
-
+    
+    best_acc = 0.0
+    
     for epoch in range(num_epochs):
-        model.train()
-        correct, total, train_loss = 0, 0, 0
-        for images, labels in tqdm(train_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
-            images, labels = images.to(device), labels.to(device)
+        # 训练阶段
+        model.train()  # 确保设置为训练模式
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        
+        progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
+        for inputs, labels in progress_bar:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+            
+            # 关键修复：确保输入数据需要梯度
+            inputs.requires_grad_(True)
+            
+            # 清零梯度
             optimizer.zero_grad()
-            outputs = model(images)
+            
+            # 前向传播
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
+            
+            # 反向传播和优化
             loss.backward()
             optimizer.step()
             
-            train_loss += loss.item()
-            _, predicted = outputs.max(1)
+            # 统计信息
+            running_loss += loss.item()
+            _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
+            
+            progress_bar.set_postfix({
+                'loss': running_loss / (progress_bar.n + 1),
+                'acc': 100 * correct / total
+            })
         
-        # 记录训练指标
-        train_acc = correct / total
-        train_loss_avg = train_loss / len(train_loader)
-        train_accs.append(train_acc)
-        train_losses.append(train_loss_avg)
-        writer.add_scalar("Loss/train", train_loss_avg, epoch)
-        writer.add_scalar("Accuracy/train", train_acc, epoch)
-
         # 验证阶段
         model.eval()
-        correct, total, val_loss = 0, 0, 0
+        val_correct = 0
+        val_total = 0
         with torch.no_grad():
-            for images, labels in val_loader:
-                images, labels = images.to(device), labels.to(device)
-                outputs = model(images)
-                loss = criterion(outputs, labels)
-                val_loss += loss.item()
-                _, predicted = outputs.max(1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
-
-        val_acc = correct / total
-        val_loss_avg = val_loss / len(val_loader)
-        val_accs.append(val_acc)
-        val_losses.append(val_loss_avg)
-        writer.add_scalar("Loss/val", val_loss_avg, epoch)
-        writer.add_scalar("Accuracy/val", val_acc, epoch)
-
-        print(f"Epoch {epoch+1}/{num_epochs} | "
-              f"Train Loss: {train_loss_avg:.4f} | "
-              f"Val Accuracy: {val_acc:.2%}")
-
-    # 保存模型和关闭TensorBoard
-    torch.save(model.state_dict(), save_path)
-    writer.close()
-    return val_acc
+            for inputs, labels in val_loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                outputs = model(inputs)
+                _, predicted = torch.max(outputs.data, 1)
+                val_total += labels.size(0)
+                val_correct += (predicted == labels).sum().item()
+        
+        val_acc = val_correct / val_total
+        print(f'Validation Accuracy: {val_acc:.2%}')
+        
+        # 保存最佳模型
+        if save_dir and val_acc > best_acc:
+            os.makedirs(save_dir, exist_ok=True)
+            torch.save(model.state_dict(), os.path.join(save_dir, 'best_model.pth'))
+            best_acc = val_acc
+    
+    return best_acc

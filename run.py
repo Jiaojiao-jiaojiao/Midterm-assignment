@@ -6,8 +6,8 @@ import os
 
 # 超参数组合
 hyperparams = {
-    "lr": [1e-3, 1e-4, 1e-5],
-    "epochs": [10, 20],
+    "lr": [1e-2, 1e-3, 1e-4],
+    "epochs": [5, 10],
     "pretrained": [True, False]
 }
 
